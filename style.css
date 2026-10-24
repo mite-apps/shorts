@@ -1,0 +1,154 @@
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: #000;
+  color: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+#stage {
+  position: fixed;
+  inset: 0;
+}
+
+#player, #stage iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+/* 動画の上に重ねてスワイプとタップを受け取る */
+#touch {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+}
+
+#info {
+  position: fixed;
+  left: 16px;
+  right: 80px;
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  text-shadow: 0 1px 4px rgba(0, 0, 0, .8);
+  pointer-events: none;
+}
+#title { font-size: 15px; font-weight: 600; line-height: 1.4; }
+#channel { font-size: 13px; opacity: .8; margin-top: 4px; }
+
+.round {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 0;
+  background: rgba(0, 0, 0, .45);
+  color: #fff;
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+#btnSettings {
+  position: fixed;
+  top: calc(12px + env(safe-area-inset-top));
+  right: 16px;
+}
+
+#sidebar {
+  position: fixed;
+  right: 16px;
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#btnUnmute {
+  position: fixed;
+  top: calc(16px + env(safe-area-inset-top));
+  left: 16px;
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, .9);
+  color: #000;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+#toast {
+  position: fixed;
+  left: 50%;
+  top: 40%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, .8);
+  font-size: 14px;
+  text-align: center;
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .92);
+  overflow-y: auto;
+  padding: calc(24px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom));
+}
+.overlay .box {
+  max-width: 480px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+#settings { background: #000; }
+#start .box { min-height: 80vh; justify-content: center; text-align: center; }
+
+h1 { font-size: 26px; margin: 0; }
+h2 { font-size: 20px; margin: 0 0 4px; }
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+  flex: 1;
+}
+.row { display: flex; gap: 12px; }
+
+input, textarea, select {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #444;
+  border-radius: 8px;
+  background: #1a1a1a;
+  color: #fff;
+  font-size: 16px; /* 16px未満だとiOSが勝手にズームする */
+  font-family: inherit;
+}
+
+button {
+  padding: 12px;
+  border: 1px solid #444;
+  border-radius: 8px;
+  background: #222;
+  color: #fff;
+  font-size: 16px;
+  font-family: inherit;
+}
+button.primary { background: #e00; border-color: #e00; font-weight: 700; }
+button.primary:disabled { opacity: .4; }
+button.link { background: none; border: 0; color: #aaa; }
+
+.note { font-size: 12px; color: #999; margin: -4px 0 0; }
+
+[hidden] { display: none !important; }

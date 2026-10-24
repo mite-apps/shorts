@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ショート">
+<meta name="theme-color" content="#000000">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="style.css">
+<title>ショート再生</title>
+</head>
+<body>
+
+<div id="stage">
+  <div id="player"></div>
+  <div id="touch"></div>
+</div>
+
+<div id="info">
+  <div id="title"></div>
+  <div id="channel"></div>
+</div>
+
+<button id="btnSettings" class="round" aria-label="設定">⚙︎</button>
+
+<div id="sidebar">
+  <button id="btnPrev" class="round" aria-label="前へ">▲</button>
+  <button id="btnNext" class="round" aria-label="次へ">▼</button>
+  <a id="btnOpen" class="round" target="_blank" rel="noopener" aria-label="YouTubeで開く">↗</a>
+</div>
+
+<button id="btnUnmute" hidden>🔇 タップで音を出す</button>
+<div id="toast" hidden></div>
+
+<div id="start" class="overlay">
+  <div class="box">
+    <h1>ショート再生</h1>
+    <p id="startMsg">読み込み中…</p>
+    <button id="btnStart" class="primary" disabled>▶ 再生を始める</button>
+    <button id="btnStartSettings" class="link">設定を開く</button>
+  </div>
+</div>
+
+<div id="settings" class="overlay" hidden>
+  <div class="box">
+    <h2>設定</h2>
+
+    <label>YouTube APIキー
+      <input id="inKey" type="password" autocomplete="off" placeholder="AIza...">
+    </label>
+    <p class="note">キーはこの端末の中だけに保存されます。</p>
+
+    <label>キーワード（1行に1つ）
+      <textarea id="inKeywords" rows="4" placeholder="猫&#10;料理 時短"></textarea>
+    </label>
+
+    <label>チャンネル（1行に1つ。@ハンドル・URL・UCから始まるID）
+      <textarea id="inChannels" rows="4" placeholder="@example"></textarea>
+    </label>
+
+    <div class="row">
+      <label>キーワードの並び
+        <select id="inOrder">
+          <option value="relevance">関連度順</option>
+          <option value="date">新しい順</option>
+          <option value="viewCount">人気順</option>
+        </select>
+      </label>
+      <label>最大の長さ
+        <select id="inMaxSec">
+          <option value="60">60秒</option>
+          <option value="180">3分</option>
+        </select>
+      </label>
+    </div>
+
+    <p class="note" id="quota"></p>
+
+    <button id="btnSave" class="primary">保存して読み直す</button>
+    <button id="btnResetWatched">視聴履歴をリセット</button>
+    <button id="btnClose" class="link">閉じる</button>
+  </div>
+</div>
+
+<script src="app.js"></script>
+<script src="https://www.youtube.com/iframe_api"></script>
+</body>
+</html>
