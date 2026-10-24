@@ -10,10 +10,33 @@ html, body {
   overscroll-behavior: none;
 }
 
+/* 下に題名用の帯を空けて、題名が動画や字幕にかぶらないようにする */
+:root { --band: calc(64px + env(safe-area-inset-bottom)); }
+
 #stage {
   position: fixed;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: var(--band);
 }
+
+/* 動画の切り替え中にYouTubeの再生ボタンが見えないよう隠す幕 */
+#cover {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .15s;
+}
+#cover.on { opacity: 1; transition: none; }
+#coverImg {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+#coverImg:not([src]) { visibility: hidden; }
 
 #player, #stage iframe {
   position: absolute;
@@ -33,13 +56,19 @@ html, body {
 #info {
   position: fixed;
   left: 16px;
-  right: 80px;
-  bottom: calc(24px + env(safe-area-inset-bottom));
-  text-shadow: 0 1px 4px rgba(0, 0, 0, .8);
+  right: 16px;
+  bottom: 0;
+  height: var(--band);
+  padding: 10px 0 env(safe-area-inset-bottom);
   pointer-events: none;
 }
-#title { font-size: 15px; font-weight: 600; line-height: 1.4; }
-#channel { font-size: 13px; opacity: .8; margin-top: 4px; }
+#title, #channel {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#title { font-size: 14px; font-weight: 600; line-height: 1.4; }
+#channel { font-size: 12px; opacity: .7; margin-top: 2px; }
 
 .round {
   width: 48px;
@@ -64,7 +93,7 @@ html, body {
 #sidebar {
   position: fixed;
   right: 16px;
-  bottom: calc(24px + env(safe-area-inset-bottom));
+  bottom: calc(var(--band) + 16px);
   display: flex;
   flex-direction: column;
   gap: 12px;

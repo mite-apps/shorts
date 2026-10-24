@@ -372,13 +372,43 @@ window.onYouTubeIframeAPIReady = () => {
       onReady: () => { playerReady = true; updateStart(); },
       onStateChange: (e) => {
         if (e.data === YT.PlayerState.ENDED) autoNext();
-        if (e.data === YT.PlayerState.PLAYING) { clearTimeout(watchdog); applyCaptions(); }
+        if (e.data === YT.PlayerState.PLAYING) {
+          clearTimeout(watchdog);
+          applyCaptions();
+          // 再生開始直後はYouTubeが真ん中に停止ボタンを出すので、消えるまで幕を残す
+          clearTimeout(coverTimer);
+          coverTimer = setTimeout(hideCover, COVER_MS);
+        }
       },
       onApiChange: () => applyCaptions(), // 字幕の情報は再生が始まってから届く
       onError: () => { toast('再生できない動画をスキップしました'); next(); },
     },
   });
 };
+
+// 切り替え中に動画の上へかぶせる幕（中身はその動画のサムネイル）
+const COVER_MS = 2000;
+let coverTimer = null;
+
+function showCover(id) {
+  clearTimeout(coverTimer);
+  const img = $('coverImg');
+  // 縦長サムネイル(oardefault)がない動画は通常のサムネイルにする。
+  // ない時はエラーになるか、120x90の灰色の代わり画像が返ってくる。
+  const fallback = () => {
+    img.onerror = img.onload = null;
+    img.src = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+  };
+  img.onerror = fallback;
+  img.onload = () => { if (img.naturalWidth <= 120) fallback(); };
+  img.src = `https://i.ytimg.com/vi/${id}/oardefault.jpg`;
+  $('cover').classList.add('on');
+}
+
+function hideCover() {
+  clearTimeout(coverTimer);
+  $('cover').classList.remove('on');
+}
 
 // 日本語字幕があればそれを、なければ他の字幕をYouTubeの自動翻訳で日本語にする。
 // 字幕まわりは公式に文書化されていない機能なので、失敗しても再生には影響させない。
@@ -449,6 +479,7 @@ function play(video) {
   current = video;
   advancedFor = null;
   watchEnd();
+  showCover(video.id);
   player.loadVideoById(video.id);
   $('title').textContent = video.title;
   $('channel').textContent = video.channel;
@@ -476,6 +507,7 @@ function play(video) {
       player.mute();
       player.playVideo();
       $('btnUnmute').hidden = false;
+      hideCover();
     }
   }, 3000);
 
