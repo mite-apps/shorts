@@ -111,7 +111,8 @@ html, body {
   gap: 12px;
 }
 #settings { background: #000; }
-#start .box { min-height: 80vh; justify-content: center; text-align: center; }
+#sleep { background: #000; }
+#start .box, .box.center { min-height: 80vh; justify-content: center; text-align: center; }
 
 h1 { font-size: 26px; margin: 0; }
 h2 { font-size: 20px; margin: 0 0 4px; }

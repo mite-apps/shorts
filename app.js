@@ -16,13 +16,23 @@ const store = {
 const CACHE_TTL = 6 * 60 * 60 * 1000; // 検索結果は6時間使い回してAPIの消費を抑える
 const WATCHED_MAX = 5000;
 const REFILL_AT = 5;
+const RECENT_TITLES_MAX = 300;
+const SIMILAR_THRESHOLD = 0.6; // タイトルの似ている度合い(0〜1)がこれ以上なら飛ばす
+const CHANNEL_GAP = 3;         // 同じチャンネルは直近この本数の中に入れない
 
 const settings = Object.assign(
-  { apiKey: '', keywords: [], channels: [], order: 'relevance', maxSec: 180 },
+  {
+    apiKey: '', keywords: [], channels: [], order: 'relevance', maxSec: 180,
+    period: 'any', // any | recent | month
+    ngWords: [], blocked: [], // blocked: [{ key, name }]
+    sleepMin: 0,              // 操作しないままこの分数たったら止める（0 = 止めない）
+    subs: 'off',              // off | ja
+  },
   store.get('settings', {})
 );
 let watched = store.get('watched', []);
 let watchedSet = new Set(watched);
+let recentTitles = store.get('recentTitles', []); // 正規化済みタイトル
 
 let player = null;
 let playerReady = false;
@@ -98,10 +108,29 @@ async function resolveChannelId(input) {
   return id;
 }
 
+// 期間の設定ごとの検索範囲（日数。null = 指定なし）。
+// 「最近を優先」は狭い範囲から始めて、尽きたら次の範囲へ広げる。
+const PERIOD_STAGES = {
+  any: [null],
+  recent: [30, 180, 365, null],
+  month: [30],
+};
+
+// キャッシュが効くよう、日付は日単位に丸める
+function daysAgo(days) {
+  const d = new Date();
+  d.setUTCHours(0, 0, 0, 0);
+  d.setUTCDate(d.getUTCDate() - days);
+  return d.toISOString();
+}
+
 // ソース1つ分の次のページを取ってくる
 async function fetchPage(src) {
   if (src.type === 'keyword') {
-    const key = ['kw', src.q, settings.order, src.token].join('|');
+    const stages = PERIOD_STAGES[settings.period] || PERIOD_STAGES.any;
+    const days = stages[src.stage || 0];
+    const after = days == null ? '' : daysAgo(days);
+    const key = ['kw', src.q, settings.order, after, src.token].join('|');
     const json = await cached(key, () => yt('search', {
       part: 'snippet',
       q: src.q + ' #shorts',
@@ -110,11 +139,16 @@ async function fetchPage(src) {
       videoEmbeddable: 'true',
       regionCode: 'JP',
       order: settings.order,
+      publishedAfter: after,
       maxResults: 50,
       pageToken: src.token,
     }, 100).then(slimSearch));
     src.token = json.next || '';
-    src.done = !json.next;
+    if (!json.next) {
+      // この範囲は出し切った。次の範囲があれば広げて続ける
+      if ((src.stage || 0) < stages.length - 1) src.stage = (src.stage || 0) + 1;
+      else src.done = true;
+    }
     return json.items;
   }
 
@@ -122,7 +156,7 @@ async function fetchPage(src) {
   if (!src.channelId) src.channelId = await resolveChannelId(src.input);
   const prefix = src.fallback ? 'UU' : 'UUSH';
   const playlistId = prefix + src.channelId.slice(2);
-  const key = ['pl', playlistId, src.token].join('|');
+  const key = ['pl2', playlistId, src.token].join('|');
   try {
     const json = await cached(key, () => yt('playlistItems', {
       part: 'snippet',
@@ -132,6 +166,14 @@ async function fetchPage(src) {
     }, 1).then(slimPlaylist));
     src.token = json.next || '';
     src.done = !json.next;
+
+    // チャンネルの一覧はもともと新しい順なので、「1か月だけ」の時だけ古いものを切る
+    if (settings.period === 'month') {
+      const cutoff = daysAgo(30);
+      const fresh = json.items.filter((v) => !v.published || v.published >= cutoff);
+      if (fresh.length < json.items.length) src.done = true;
+      return fresh;
+    }
     return json.items;
   } catch (e) {
     if (e.status === 404 && !src.fallback) {
@@ -150,6 +192,7 @@ function slimSearch(json) {
       id: it.id.videoId,
       title: decodeEntities(it.snippet.title),
       channel: it.snippet.channelTitle,
+      channelId: it.snippet.channelId,
     })),
   };
 }
@@ -163,6 +206,8 @@ function slimPlaylist(json) {
         id: it.snippet.resourceId.videoId,
         title: it.snippet.title,
         channel: it.snippet.videoOwnerChannelTitle || it.snippet.channelTitle,
+        channelId: it.snippet.videoOwnerChannelId || it.snippet.channelId,
+        published: it.snippet.publishedAt,
       })),
   };
 }
@@ -208,6 +253,49 @@ function shuffle(arr) {
   return arr;
 }
 
+// ---------- 似た動画を避ける ----------
+const channelKey = (v) => v.channelId || v.channel || '';
+
+// ハッシュタグ・記号・数字・空白を落として、タイトルの中身だけを比べる
+function normTitle(s) {
+  return (s || '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/#\S+/g, '')
+    .replace(/[\p{P}\p{S}\p{N}\s]/gu, '');
+}
+
+function bigrams(s) {
+  const set = new Set();
+  for (let i = 0; i < s.length - 1; i++) set.add(s.slice(i, i + 2));
+  return set;
+}
+
+// 2文字ずつの組の重なり具合（Dice係数）
+function similarity(a, b) {
+  const A = bigrams(a);
+  const B = bigrams(b);
+  if (!A.size || !B.size) return 0;
+  let common = 0;
+  for (const x of A) if (B.has(x)) common++;
+  return (2 * common) / (A.size + B.size);
+}
+
+function isSimilarToAny(norm, list) {
+  if (norm.length < 4) return false; // 短すぎるタイトルは比べても当てにならない
+  return list.some((t) => t.length >= 4 && similarity(norm, t) >= SIMILAR_THRESHOLD);
+}
+
+function hasNgWord(v) {
+  const t = (v.title || '').normalize('NFKC').toLowerCase();
+  return settings.ngWords.some((w) => t.includes(w.normalize('NFKC').toLowerCase()));
+}
+
+function isBlocked(v) {
+  const key = channelKey(v);
+  return settings.blocked.some((b) => b.key === key || b.name === v.channel);
+}
+
 function buildSources() {
   sources = [
     ...settings.keywords.map((q) => ({ type: 'keyword', q, token: '', done: false })),
@@ -238,6 +326,17 @@ function refill() {
 
       const seen = new Set([...queue, ...history].map((v) => v.id));
       items = items.filter((v) => v.id && !watchedSet.has(v.id) && !seen.has(v.id) && seen.add(v.id));
+      items = items.filter((v) => !hasNgWord(v) && !isBlocked(v));
+
+      // 最近流したもの・キュー・この回で採用したものとタイトルが似ていたら外す
+      const titles = recentTitles.concat(queue.map((v) => normTitle(v.title)));
+      items = items.filter((v) => {
+        const n = normTitle(v.title);
+        if (isSimilarToAny(n, titles)) return false;
+        titles.push(n);
+        return true;
+      });
+
       items = await filterPlayable(items).catch((e) => { handleApiError(e); return []; });
 
       queue = shuffle(queue.concat(items));
@@ -266,17 +365,44 @@ window.onYouTubeIframeAPIReady = () => {
       iv_load_policy: 3,
       fs: 0,
       disablekb: 1,
+      hl: 'ja',
+      ...(settings.subs === 'ja' ? { cc_load_policy: 1, cc_lang_pref: 'ja' } : {}),
     },
     events: {
       onReady: () => { playerReady = true; updateStart(); },
       onStateChange: (e) => {
         if (e.data === YT.PlayerState.ENDED) autoNext();
-        if (e.data === YT.PlayerState.PLAYING) clearTimeout(watchdog);
+        if (e.data === YT.PlayerState.PLAYING) { clearTimeout(watchdog); applyCaptions(); }
       },
+      onApiChange: () => applyCaptions(), // 字幕の情報は再生が始まってから届く
       onError: () => { toast('再生できない動画をスキップしました'); next(); },
     },
   });
 };
+
+// 日本語字幕があればそれを、なければ他の字幕をYouTubeの自動翻訳で日本語にする。
+// 字幕まわりは公式に文書化されていない機能なので、失敗しても再生には影響させない。
+function applyCaptions() {
+  if (settings.subs !== 'ja' || !player?.getOption) return;
+  try {
+    const list = player.getOption('captions', 'tracklist') || [];
+    if (!list.length) return;
+    const ja = list.find((t) => (t.languageCode || '').startsWith('ja'));
+    const base = ja || list.find((t) => t.kind !== 'asr') || list[0];
+    const want = ja
+      ? { languageCode: ja.languageCode }
+      : { languageCode: base.languageCode, translationLanguage: { languageCode: 'ja', languageName: '日本語' } };
+
+    const cur = player.getOption('captions', 'track') || {};
+    const curTl = cur.translationLanguage?.languageCode || '';
+    const wantTl = want.translationLanguage?.languageCode || '';
+    if (cur.languageCode === want.languageCode && curTl === wantTl) return;
+
+    player.setOption('captions', 'track', want);
+  } catch (e) {
+    console.warn('字幕の設定に失敗', e);
+  }
+}
 
 // 埋め込みのショートは終わると頭に戻ってループし、ENDED が来ないことがある。
 // そのため再生位置を見張り、終わり際か、頭に巻き戻ったのを見つけたら次へ進む。
@@ -285,9 +411,23 @@ let advancedFor = null;
 let maxTime = 0;
 let endTimer = null;
 
+// 寝落ち対策: 最後に画面を触ってから一定時間たったら、今の動画が終わったところで止める
+let lastTouch = Date.now();
+const touched = () => { lastTouch = Date.now(); };
+
+function sleepDue() {
+  return settings.sleepMin > 0 && Date.now() - lastTouch >= settings.sleepMin * 60 * 1000;
+}
+
 function autoNext() {
   if (!current || advancedFor === current.id) return;
   advancedFor = current.id;
+  if (sleepDue()) {
+    clearInterval(endTimer);
+    player.pauseVideo();
+    $('sleep').hidden = false;
+    return;
+  }
   next();
 }
 
@@ -322,6 +462,10 @@ function play(video) {
       watchedSet = new Set(watched);
     }
     store.set('watched', watched);
+
+    recentTitles.push(normTitle(video.title));
+    if (recentTitles.length > RECENT_TITLES_MAX) recentTitles = recentTitles.slice(-RECENT_TITLES_MAX);
+    store.set('recentTitles', recentTitles);
   }
 
   // 音ありで自動再生できなかった時は、ミュートで再生して音出しボタンを出す
@@ -344,7 +488,12 @@ async function next() {
     return;
   }
   if (!queue.length) await refill();
-  const v = queue.shift();
+
+  // 直近に流したチャンネルと違うものを優先して選ぶ（なければ先頭）
+  const recentCh = history.slice(-CHANNEL_GAP).map(channelKey);
+  let i = queue.findIndex((x) => !recentCh.includes(channelKey(x)));
+  if (i < 0) i = 0;
+  const v = queue.splice(i, 1)[0];
   if (!v) {
     toast('流せる動画がなくなりました。\nキーワードを足すか、視聴履歴をリセットしてください。');
     return;
@@ -398,7 +547,12 @@ function openSettings() {
   $('inKeywords').value = settings.keywords.join('\n');
   $('inChannels').value = settings.channels.join('\n');
   $('inOrder').value = settings.order;
+  $('inPeriod').value = settings.period;
   $('inMaxSec').value = String(settings.maxSec);
+  $('inSleep').value = String(settings.sleepMin);
+  $('inSubs').value = settings.subs;
+  $('inNg').value = settings.ngWords.join('\n');
+  $('inBlocked').value = settings.blocked.map((b) => `${b.name} [${b.key}]`).join('\n');
   const q = store.get('quota', null);
   const today = new Date().toISOString().slice(0, 10);
   const used = q && q.day === today ? q.used : 0;
@@ -424,8 +578,20 @@ $('btnSave').onclick = async () => {
   settings.keywords = lines($('inKeywords').value);
   settings.channels = lines($('inChannels').value);
   settings.order = $('inOrder').value;
+  settings.period = $('inPeriod').value;
   settings.maxSec = Number($('inMaxSec').value);
+  settings.sleepMin = Number($('inSleep').value);
+  const subsChanged = settings.subs !== $('inSubs').value;
+  settings.subs = $('inSubs').value;
+  settings.ngWords = lines($('inNg').value);
+  // 「名前 [キー]」の形。行を消せば非表示が解除される
+  settings.blocked = lines($('inBlocked').value).map((l) => {
+    const m = l.match(/^(.*?)\s*\[([^\]]+)\]\s*$/);
+    return m ? { name: m[1], key: m[2] } : { name: l, key: l };
+  });
   store.set('settings', settings);
+  // 字幕の設定はプレイヤーを作る時にしか渡せないので、ページごと読み直す
+  if (subsChanged) { location.reload(); return; }
   $('settings').hidden = true;
   started = false;
   if (player) player.stopVideo();
@@ -438,7 +604,20 @@ $('btnResetWatched').onclick = () => {
   watched = [];
   watchedSet = new Set();
   store.set('watched', watched);
+  recentTitles = [];
+  store.set('recentTitles', recentTitles);
   toast('視聴履歴をリセットしました');
+};
+
+$('btnBlock').onclick = () => {
+  if (!current) return;
+  const name = current.channel || '（不明）';
+  if (!confirm(`「${name}」の動画を今後出さないようにしますか？\n（設定画面からいつでも戻せます）`)) return;
+  settings.blocked.push({ name, key: channelKey(current) || name });
+  store.set('settings', settings);
+  queue = queue.filter((v) => !isBlocked(v));
+  toast(`「${name}」を非表示にしました`);
+  next();
 };
 
 $('btnClose').onclick = () => {
@@ -448,6 +627,16 @@ $('btnClose').onclick = () => {
 
 $('btnSettings').onclick = openSettings;
 $('btnStartSettings').onclick = openSettings;
+
+$('btnWake').onclick = () => {
+  $('sleep').hidden = true;
+  next();
+};
+
+// どこかを触ったら寝落ちタイマーを最初から数え直す
+document.addEventListener('touchstart', touched, { passive: true, capture: true });
+document.addEventListener('mousedown', touched, true);
+document.addEventListener('keydown', touched, true);
 
 $('btnStart').onclick = () => {
   started = true;

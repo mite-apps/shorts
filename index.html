@@ -10,7 +10,7 @@
 <meta name="theme-color" content="#000000">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="manifest" href="manifest.json">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=3">
 <title>ショート再生</title>
 </head>
 <body>
@@ -30,6 +30,7 @@
 <div id="sidebar">
   <button id="btnPrev" class="round" aria-label="前へ">▲</button>
   <button id="btnNext" class="round" aria-label="次へ">▼</button>
+  <button id="btnBlock" class="round" aria-label="このチャンネルを出さない">🚫</button>
   <a id="btnOpen" class="round" target="_blank" rel="noopener" aria-label="YouTubeで開く">↗</a>
 </div>
 
@@ -42,6 +43,14 @@
     <p id="startMsg">読み込み中…</p>
     <button id="btnStart" class="primary" disabled>▶ 再生を始める</button>
     <button id="btnStartSettings" class="link">設定を開く</button>
+  </div>
+</div>
+
+<div id="sleep" class="overlay" hidden>
+  <div class="box center">
+    <h1>おやすみなさい</h1>
+    <p>しばらく操作がなかったので止めました。</p>
+    <button id="btnWake" class="primary">▶ 続きを見る</button>
   </div>
 </div>
 
@@ -70,6 +79,15 @@
           <option value="viewCount">人気順</option>
         </select>
       </label>
+      <label>期間
+        <select id="inPeriod">
+          <option value="any">指定なし</option>
+          <option value="recent">最近を優先</option>
+          <option value="month">1か月だけ</option>
+        </select>
+      </label>
+    </div>
+    <div class="row">
       <label>最大の長さ
         <select id="inMaxSec">
           <option value="60">60秒</option>
@@ -77,6 +95,33 @@
         </select>
       </label>
     </div>
+
+    <label>字幕（字幕のある動画だけ。なければ自動翻訳を試す）
+      <select id="inSubs">
+        <option value="off">オフ</option>
+        <option value="ja">日本語</option>
+      </select>
+    </label>
+
+    <label>おやすみタイマー（画面を触らないままこの時間たったら止める）
+      <select id="inSleep">
+        <option value="0">使わない</option>
+        <option value="15">15分</option>
+        <option value="30">30分</option>
+        <option value="45">45分</option>
+        <option value="60">1時間</option>
+        <option value="90">1時間30分</option>
+        <option value="120">2時間</option>
+      </select>
+    </label>
+
+    <label>NGワード（1行に1つ。タイトルに入っていたら出さない）
+      <textarea id="inNg" rows="3" placeholder="切り抜き&#10;ネタバレ"></textarea>
+    </label>
+
+    <label>非表示のチャンネル（再生中の🚫で追加。行を消すと解除）
+      <textarea id="inBlocked" rows="3"></textarea>
+    </label>
 
     <p class="note" id="quota"></p>
 
@@ -86,7 +131,7 @@
   </div>
 </div>
 
-<script src="app.js?v=2"></script>
+<script src="app.js?v=5"></script>
 <script src="https://www.youtube.com/iframe_api"></script>
 </body>
 </html>
