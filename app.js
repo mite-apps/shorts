@@ -181,7 +181,7 @@ function parseDuration(iso) {
 
 // 長さと埋め込み可否で絞り込む
 async function filterPlayable(items) {
-  const ok = new Set();
+  const ok = new Map(); // id -> 秒数
   for (let i = 0; i < items.length; i += 50) {
     const ids = items.slice(i, i + 50).map((v) => v.id);
     const json = await cached('vd|' + ids.join(','), () => yt('videos', {
@@ -194,10 +194,10 @@ async function filterPlayable(items) {
       embeddable: v.status.embeddable !== false,
     }))));
     for (const v of json) {
-      if (v.embeddable && v.sec > 0 && v.sec <= settings.maxSec) ok.add(v.id);
+      if (v.embeddable && v.sec > 0 && v.sec <= settings.maxSec) ok.set(v.id, v.sec);
     }
   }
-  return items.filter((v) => ok.has(v.id));
+  return items.filter((v) => ok.has(v.id)).map((v) => ({ ...v, sec: ok.get(v.id) }));
 }
 
 function shuffle(arr) {
@@ -270,7 +270,7 @@ window.onYouTubeIframeAPIReady = () => {
     events: {
       onReady: () => { playerReady = true; updateStart(); },
       onStateChange: (e) => {
-        if (e.data === YT.PlayerState.ENDED) next();
+        if (e.data === YT.PlayerState.ENDED) autoNext();
         if (e.data === YT.PlayerState.PLAYING) clearTimeout(watchdog);
       },
       onError: () => { toast('再生できない動画をスキップしました'); next(); },
@@ -278,7 +278,37 @@ window.onYouTubeIframeAPIReady = () => {
   });
 };
 
+// 埋め込みのショートは終わると頭に戻ってループし、ENDED が来ないことがある。
+// そのため再生位置を見張り、終わり際か、頭に巻き戻ったのを見つけたら次へ進む。
+let current = null;
+let advancedFor = null;
+let maxTime = 0;
+let endTimer = null;
+
+function autoNext() {
+  if (!current || advancedFor === current.id) return;
+  advancedFor = current.id;
+  next();
+}
+
+function watchEnd() {
+  clearInterval(endTimer);
+  maxTime = 0;
+  endTimer = setInterval(() => {
+    if (!player?.getCurrentTime || player.getPlayerState() !== YT.PlayerState.PLAYING) return;
+    if (player.getVideoData?.().video_id !== current?.id) return; // 切り替え直後は前の動画の値が残っている
+    const t = player.getCurrentTime();
+    const d = player.getDuration() || current?.sec || 0;
+    if (d > 0 && t >= d - 0.5) return autoNext();
+    if (d > 0 && maxTime >= d * 0.7 && t < maxTime - 2) return autoNext(); // ループして頭に戻った
+    maxTime = Math.max(maxTime, t);
+  }, 300);
+}
+
 function play(video) {
+  current = video;
+  advancedFor = null;
+  watchEnd();
   player.loadVideoById(video.id);
   $('title').textContent = video.title;
   $('channel').textContent = video.channel;
