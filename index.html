@@ -10,7 +10,7 @@
 <meta name="theme-color" content="#000000">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="manifest" href="manifest.json">
-<link rel="stylesheet" href="style.css?v=7">
+<link rel="stylesheet" href="style.css?v=8">
 <title>ショート再生</title>
 </head>
 <body>
@@ -104,6 +104,11 @@
       </select>
     </label>
 
+    <label class="check">
+      <input id="inHideUi" type="checkbox">
+      YouTubeのショートの詳細（題名・高評価・共有など）を隠す
+    </label>
+
     <label>おやすみタイマー（画面を触らないままこの時間たったら止める）
       <select id="inSleep">
         <option value="0">使わない</option>
@@ -132,7 +137,7 @@
   </div>
 </div>
 
-<script src="app.js?v=7"></script>
+<script src="app.js?v=8"></script>
 <script src="https://www.youtube.com/iframe_api"></script>
 </body>
 </html>

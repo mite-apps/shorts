@@ -27,6 +27,7 @@ const settings = Object.assign(
     ngWords: [], blocked: [], // blocked: [{ key, name }]
     sleepMin: 0,              // 操作しないままこの分数たったら止める（0 = 止めない）
     subs: 'off',              // off | ja
+    hideUi: true,             // YouTubeが出すショートの詳細を切り落として隠す
   },
   store.get('settings', {})
 );
@@ -583,6 +584,7 @@ function openSettings() {
   $('inMaxSec').value = String(settings.maxSec);
   $('inSleep').value = String(settings.sleepMin);
   $('inSubs').value = settings.subs;
+  $('inHideUi').checked = settings.hideUi;
   $('inNg').value = settings.ngWords.join('\n');
   $('inBlocked').value = settings.blocked.map((b) => `${b.name} [${b.key}]`).join('\n');
   const q = store.get('quota', null);
@@ -615,6 +617,8 @@ $('btnSave').onclick = async () => {
   settings.sleepMin = Number($('inSleep').value);
   const subsChanged = settings.subs !== $('inSubs').value;
   settings.subs = $('inSubs').value;
+  settings.hideUi = $('inHideUi').checked;
+  document.body.classList.toggle('crop', settings.hideUi);
   settings.ngWords = lines($('inNg').value);
   // 「名前 [キー]」の形。行を消せば非表示が解除される
   settings.blocked = lines($('inBlocked').value).map((l) => {
@@ -709,6 +713,8 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ---------- 起動 ----------
+document.body.classList.toggle('crop', settings.hideUi);
+
 if (!settings.apiKey || (!settings.keywords.length && !settings.channels.length)) {
   buildSources();
   updateStart();

@@ -19,7 +19,17 @@ html, body {
   left: 0;
   right: 0;
   bottom: var(--band);
+  overflow: hidden;
 }
+
+/* YouTubeがプレイヤーの下端に出すショートの詳細（題名・高評価・共有・再生バー）を隠す。
+   プレイヤーを上下に同じだけ大きくして、はみ出した部分を切り落とす。
+   上下同じにするのは、動画の中心をずらさないため。 */
+body.crop #stage iframe {
+  top: calc(-1 * var(--crop));
+  height: calc(100% + 2 * var(--crop));
+}
+:root { --crop: 130px; }
 
 /* 動画の切り替え中にYouTubeの再生ボタンが見えないよう隠す幕 */
 #cover {
@@ -154,6 +164,8 @@ label {
   flex: 1;
 }
 .row { display: flex; gap: 12px; }
+label.check { flex-direction: row; align-items: center; gap: 10px; }
+label.check input { width: 22px; height: 22px; flex: none; }
 
 input, textarea, select {
   width: 100%;
