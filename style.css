@@ -63,13 +63,39 @@ body.crop #stage iframe {
   touch-action: none;
 }
 
+/* 動画と題名の帯の境目に置くシークバー。触りやすいよう当たり判定は太めにする */
+#seek {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--band) - 12px);
+  height: 24px;
+  display: flex;
+  align-items: center;
+  touch-action: none;
+}
+#seekTrack {
+  position: relative;
+  width: 100%;
+  height: 3px;
+  background: rgba(255, 255, 255, .25);
+}
+#seekFill {
+  height: 100%;
+  width: 0;
+  background: #f00;
+  transition: width .3s linear;
+}
+#seek:active #seekTrack { height: 6px; }
+#seek:active #seekFill { transition: none; }
+
 #info {
   position: fixed;
   left: 16px;
   right: 16px;
   bottom: 0;
   height: var(--band);
-  padding: 10px 0 env(safe-area-inset-bottom);
+  padding: 14px 0 env(safe-area-inset-bottom);
   pointer-events: none;
 }
 #title, #channel {

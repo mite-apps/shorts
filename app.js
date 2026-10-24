@@ -376,7 +376,6 @@ window.onYouTubeIframeAPIReady = () => {
         if (e.data === YT.PlayerState.PLAYING) {
           clearTimeout(watchdog);
           applyCaptions();
-          // 再生開始直後はYouTubeが真ん中に停止ボタンを出すので、消えるまで幕を残す
           clearTimeout(coverTimer);
           coverTimer = setTimeout(hideCover, COVER_MS);
         }
@@ -388,7 +387,7 @@ window.onYouTubeIframeAPIReady = () => {
 };
 
 // 切り替え中に動画の上へかぶせる幕（中身はその動画のサムネイル）
-const COVER_MS = 2000;
+const COVER_MS = 150;
 let coverTimer = null;
 
 function showCover(id) {
@@ -465,8 +464,13 @@ function autoNext() {
 function watchEnd() {
   clearInterval(endTimer);
   maxTime = 0;
+  updateSeek(0, 1);
   endTimer = setInterval(() => {
-    if (!player?.getCurrentTime || player.getPlayerState() !== YT.PlayerState.PLAYING) return;
+    if (!player?.getCurrentTime) return;
+    if (player.getVideoData?.().video_id === current?.id) {
+      updateSeek(player.getCurrentTime(), player.getDuration() || current?.sec || 0);
+    }
+    if (player.getPlayerState() !== YT.PlayerState.PLAYING) return;
     if (player.getVideoData?.().video_id !== current?.id) return; // 切り替え直後は前の動画の値が残っている
     const t = player.getCurrentTime();
     const d = player.getDuration() || current?.sec || 0;
@@ -475,6 +479,39 @@ function watchEnd() {
     maxTime = Math.max(maxTime, t);
   }, 300);
 }
+
+// ---------- 自前のシークバー（YouTubeのものは切り落としているため） ----------
+let seeking = false;
+
+function updateSeek(t, d) {
+  if (seeking) return;
+  $('seekFill').style.width = d > 0 ? Math.min(100, (t / d) * 100) + '%' : '0%';
+}
+
+function seekFromEvent(e) {
+  const rect = $('seek').getBoundingClientRect();
+  const x = (e.touches?.[0] ?? e.changedTouches?.[0] ?? e).clientX;
+  const ratio = Math.max(0, Math.min(1, (x - rect.left) / rect.width));
+  $('seekFill').style.width = ratio * 100 + '%';
+  return ratio;
+}
+
+function seekTo(ratio) {
+  const d = player?.getDuration?.() || current?.sec || 0;
+  if (!d) return;
+  const t = Math.min(ratio * d, d - 1);
+  maxTime = t; // 巻き戻しを「ループした」と勘違いして次へ進まないように
+  player.seekTo(t, true);
+}
+
+$('seek').addEventListener('touchstart', (e) => { seeking = true; seekFromEvent(e); }, { passive: true });
+$('seek').addEventListener('touchmove', (e) => { seekFromEvent(e); }, { passive: true });
+$('seek').addEventListener('touchend', (e) => {
+  e.preventDefault();
+  seekTo(seekFromEvent(e));
+  seeking = false;
+});
+$('seek').addEventListener('click', (e) => { seekTo(seekFromEvent(e)); });
 
 function play(video) {
   current = video;
