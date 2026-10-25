@@ -102,7 +102,11 @@ async function resolveChannelId(input) {
     const json = await yt('channels', { part: 'id', forHandle: '@' + handle }, 1);
     id = json.items?.[0]?.id;
   }
-  if (!id) throw new Error('チャンネルが見つかりません: ' + input);
+  if (!id) {
+    const err = new Error('チャンネルが見つかりません: ' + input);
+    err.permanent = true; // 何度試しても無駄なので、以後は使わない
+    throw err;
+  }
 
   map[input] = id;
   store.set('channelIds', map);
@@ -150,7 +154,7 @@ async function fetchPage(src) {
       if ((src.stage || 0) < stages.length - 1) src.stage = (src.stage || 0) + 1;
       else src.done = true;
     }
-    return json.items;
+    return json.items.map((v) => ({ ...v, fromKeyword: true }));
   }
 
   // チャンネル: ショートだけの隠し再生リスト(UUSH...)を使い、駄目なら全動画(UU...)にする
@@ -297,12 +301,25 @@ function isBlocked(v) {
   return settings.blocked.some((b) => b.key === key || b.name === v.channel);
 }
 
+const RETRY_MS = 5 * 60 * 1000;       // エラーになったソースは5分後にまた試す
+const REBUILD_MS = 60 * 60 * 1000;    // 全部出し切った時に検索し直す間隔の下限
+const STALE_MS = 30 * 60 * 1000;      // これ以上離れていたら、戻った時に検索し直す
+const PER_CHANNEL_BATCH = 3;          // 1回の補充で同じチャンネルから入れる上限
+let lastBuild = 0;
+
 function buildSources() {
   sources = [
     ...settings.keywords.map((q) => ({ type: 'keyword', q, token: '', done: false })),
     ...settings.channels.map((input) => ({ type: 'channel', input, token: '', done: false })),
   ];
   queue = [];
+  lastBuild = Date.now();
+}
+
+// 長く離れていた後は、キューを捨てて検索し直す（見た動画の記録は残る）
+async function refreshSources() {
+  buildSources();
+  await refill();
 }
 
 // キューが減ったら、まだ続きがあるソースから少しずつ補充する
@@ -312,7 +329,16 @@ function refill() {
     let rounds = 0;
     while (queue.length < REFILL_AT && rounds < 5) {
       rounds++;
-      const live = shuffle(sources.filter((s) => !s.done)).slice(0, 3);
+      const now = Date.now();
+      let live = sources.filter((s) => !s.done && !(s.retryAt > now));
+      if (!live.length && sources.every((s) => s.done) && now - lastBuild >= REBUILD_MS) {
+        // 全部出し切ったら、時間を置いて最初から検索し直す（新しい投稿が増えているため）
+        const q = queue;
+        buildSources();
+        queue = q;
+        live = sources.slice();
+      }
+      live = shuffle(live).slice(0, 3);
       if (!live.length) break;
 
       const results = await Promise.allSettled(live.map(fetchPage));
@@ -320,10 +346,24 @@ function refill() {
       for (const [i, r] of results.entries()) {
         if (r.status === 'fulfilled') items.push(...r.value);
         else {
-          live[i].done = true;
+          // 通信の不調などで一度失敗しただけで、ずっと使わなくなるのを防ぐ
+          if (r.reason?.permanent) live[i].done = true;
+          else live[i].retryAt = Date.now() + RETRY_MS;
           handleApiError(r.reason);
         }
       }
+
+      // キーワード検索の結果が1つのチャンネルばかりにならないよう、1回の補充で入れる本数を抑える
+      // （登録したチャンネルの分は、そのチャンネルを見たくて登録しているので抑えない）
+      // （キュー全体で数えると、1チャンネルしか出ない検索で何度も検索し直して使用量を食うので、1回分だけで数える）
+      const perChannel = new Map();
+      items = items.filter((v) => {
+        if (!v.fromKeyword) return true;
+        const n = perChannel.get(channelKey(v)) || 0;
+        if (n >= PER_CHANNEL_BATCH) return false;
+        perChannel.set(channelKey(v), n + 1);
+        return true;
+      });
 
       const seen = new Set([...queue, ...history].map((v) => v.id));
       items = items.filter((v) => v.id && !watchedSet.has(v.id) && !seen.has(v.id) && seen.add(v.id));
@@ -456,10 +496,12 @@ function autoNext() {
     clearInterval(endTimer);
     player.pauseVideo();
     $('sleep').hidden = false;
+    sleptAt = Date.now();
     return;
   }
   next();
 }
+let sleptAt = 0;
 
 function watchEnd() {
   clearInterval(endTimer);
@@ -701,10 +743,24 @@ $('btnClose').onclick = () => {
 $('btnSettings').onclick = openSettings;
 $('btnStartSettings').onclick = openSettings;
 
-$('btnWake').onclick = () => {
+$('btnWake').onclick = async () => {
   $('sleep').hidden = true;
+  // 寝落ちから時間がたっていたら、前日のキューは使わずに検索し直す
+  if (Date.now() - sleptAt >= STALE_MS) {
+    toast('新しい動画を探しています…');
+    await refreshSources();
+  }
   next();
 };
+
+// アプリを裏に回して長く離れていた場合も、戻った時に検索し直す
+let hiddenAt = 0;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { hiddenAt = Date.now(); return; }
+  if (started && hiddenAt && Date.now() - hiddenAt >= STALE_MS && $('sleep').hidden) {
+    refreshSources();
+  }
+});
 
 // どこかを触ったら寝落ちタイマーを最初から数え直す
 document.addEventListener('touchstart', touched, { passive: true, capture: true });
